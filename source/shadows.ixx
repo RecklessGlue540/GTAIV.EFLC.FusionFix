@@ -19,7 +19,6 @@ int32_t bExtraDynamicShadows;
 bool bHighResolutionNightShadows = false;
 
 std::string curModelName;
-
 void* __cdecl CModelInfoStore__allocateBaseModelHook(char* modelName)
 {
     curModelName = modelName;
@@ -71,7 +70,7 @@ void __cdecl CBaseModelInfo__setFlagsHook(void* pModel, int dwFlags, int a3)
 
     if (bitFlags.test(no_shadow))
     {
-        if (bExtraDynamicShadows >= 3 || std::any_of(std::begin(modelNames), std::end(modelNames), [](auto& i) { return curModelName.contains(i); }))
+        if (std::any_of(std::begin(modelNames), std::end(modelNames), [](auto& i) { return curModelName.contains(i); }))
         {
             bitFlags.reset(no_shadow);
             bitFlags.reset(static_shadow_1);
@@ -86,8 +85,8 @@ void __cdecl CBaseModelInfo__setFlagsHook(void* pModel, int dwFlags, int a3)
 
 int GetNightShadowQuality()
 {
-    static auto ShadowDensity = FusionFixSettings.GetRef("PREF_SHADOW_DENSITY");
-    switch (ShadowDensity->get())
+    static auto NightShadows = FusionFixSettings.GetRef("PREF_SHADOW_DENSITY");
+    switch (NightShadows->get())
     {
         case 0: //MO_OFF
             return 0;
@@ -163,7 +162,26 @@ public:
                 if (bExtraDynamicShadows >= 1)
                 {
                     std::vector<std::string> vegetationNames = {
-                        "bush", "weed", "grass", "azalea", "bholly", "fern", "tree"
+                        // ext_veg
+                        "ag_bigandbushy", "ag_bigandbushygrn", "azalea_md_ingame", "azalea_md_ingame_06",
+                        "azalea_md_ingame_2", "bholly_md_ingame", "bholly_md_ingame_2", "bholly_md_s_ingame_2", "c_fern_md_ingame_2",
+                        // procobj
+                        "ag_bushytree4", "ag_bushytree5", "ag_bushytree6", "ag_bushytree7", "ag_bushytree11",
+                        "ag_weed02", "ag_weed03", "ag_weed04", "ag_weed05", "ag_weed06", "ag_weed07",
+                        "cj_apple_1", "cj_apple_2", "cj_apple_3", "cj_apple_4",
+                        "cj_ban_1", "cj_ban_2", "cj_ban_3", "cj_ban_4", "cj_ban_5", "cj_ban_6", "cj_ban_7", "cj_ban_8",
+                        "cj_daisy_1", "cj_daisy_2",
+                        "cj_f1", "cj_f2", "cj_f4", "cj_f5", "cj_f6", "cj_f7", "cj_f8", "cj_f9",
+                        "cj_leaf_1", "cj_leaf_2", "cj_leaf_3", "cj_leaf_4", "cj_proc_card1", "cj_proc_card2", "cj_proc_card3",
+                        "cj_proc_fag1", "cj_proc_fag2", "cj_proc_fag3", "cj_proc_fagp", "cj_proc_fagp_2",
+                        "cj_proc_hose", "cj_proc_hose2", "cj_proc_hose3", "cj_proc_jonny",
+                        "cj_proc_paper", "cj_proc_paper2", "cj_proc_paper3", "cj_proc_paper4", "cj_proc_paper5",
+                        "cj_proc_rec1", "cj_proc_rec2", "cj_proc_rec3", "cj_proc_rec4", "cj_proc_rec5",
+                        "cj_proc_rope1", "cj_proc_rope2", "cj_proc_ticket1", "cj_proc_ticket2",
+                        "cj_proc_slab1", "cj_proc_slab2", "cj_proc_slab3", "cj_proc_slab4", "cj_proc_slab5", "cj_proc_slab6",
+                        "cj_proc_wood11", "cj_proc_wood12", "cj_proc_wood13", "cj_rub_4", "cj_rub_5", "cj_rub_6", "cj_rub_7",
+                        "grass0_1", "proc_grass00", "proc_grass01", "proc_grass02", "proc_grass_dry", "proc_weed00", "proc_weed01",
+                        "proc_weed02", "proc_weed04", "proc_weed05"
                     };
 
                     modelNames.insert(modelNames.end(), vegetationNames.begin(), vegetationNames.end());
@@ -183,12 +201,23 @@ public:
                         "bxw_el_mesh", "bxw_el_lights2", "bxw_el_lights", "el_lights01", "el_lights02a",
                         "el_lights02", "el_lights04", "bx_eltrain_5a", "bx_eltrain_6a", "bx_eltrain_7a",
                         "bx_eltrain_10a",
-                        "bx_firescape", "fire_esc_1b", "fire_esc_2b", "fire_esc_6", "fire_esc_6b", "fire_esc_7b",
-                        "fire_esc_10", "fire_esc_10b",
+                        "fire_esc_1", "fire_esc_1b", "fire_esc_2", "fire_esc_2b", "fire_esc_2_steps", "fire_esc_4",
+                        "fire_esc_4b", "fire_esc_5", "fire_esc_5b", "fire_esc_6", "fire_esc_6b", "fire_esc_7",
+                        "fire_esc_7b", "fire_esc_8", "fire_esc_8b", "fire_esc_9", "fire_esc_9b", "fire_esc_10",
+                        "fire_esc_10b", "fire_esc_11", "fire_esc_11b", "fire_esc_11c", "fire_esc_12b", "bx_firescape",
                         "fence", "cj_mh_cp_post1"
                     };
 
                     modelNames.insert(modelNames.end(), grateNames.begin(), grateNames.end());
+                }
+
+                if (bExtraDynamicShadows >= 3)
+                {
+                    std::vector<std::string> miscNames = {
+                        "road"
+                    };
+
+                    modelNames.insert(modelNames.end(), miscNames.begin(), miscNames.end());
                 }
 
                 auto pattern = hook::pattern("D9 6C 24 0E 56");
