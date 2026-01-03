@@ -257,77 +257,117 @@ public:
                 }; injector::MakeInline<FramerateVigilanteHook1>(pattern.get_first(0), pattern.get_first(6));
             }
 
-            // Loading text
-            pattern = hook::pattern("F3 0F 10 05 ? ? ? ? F3 0F 58 C1 F3 0F 11 05 ? ? ? ? EB 36");
+            // Fixes loading screen animations running at double the intended speed in comparison to consoles
+            // This was especially noticeable when using the console loading screens but with default console loadingscreens.dat files
+            // Worth emphasizing that this does not fix the fps dependent loadscreen animations, just slows them down so they match consoles at 30fps
+            pattern = hook::pattern("F3 0F 59 0D ? ? ? ? C7 84 18");
             if (!pattern.empty())
             {
-                static auto f1032790 = *pattern.get_first<float*>(4);
-                struct LoadingTextSpeed
+                struct LoadingScreenAnimationSpeed1
                 {
                     void operator()(injector::reg_pack& regs)
                     {
-                        regs.xmm0.f32[0] = *f1032790 * *CTimer::fTimeStep;
-                        regs.xmm0.f32[0] += regs.xmm1.f32[0];
+                        regs.xmm1.f32[0] *= 33.3f; // 66.6f --> 33.3f
                     }
-                }; injector::MakeInline<LoadingTextSpeed>(pattern.get_first(0), pattern.get_first(12));
+                }; injector::MakeInline<LoadingScreenAnimationSpeed1>(pattern.get_first(0), pattern.get_first(8));
             }
             else
             {
-                pattern = hook::pattern("F3 0F 10 05 ? ? ? ? F3 0F 58 05 ? ? ? ? F3 0F 11 05 ? ? ? ? EB 30");
-                static auto f1738420 = *pattern.get_first<float*>(4);
+                pattern = hook::pattern("F3 0F 10 15 ? ? ? ? F3 0F 59 E3 F3 0F 59 E2");
+                struct LoadingScreenAnimationSpeed1
+                {
+                    void operator()(injector::reg_pack& regs)
+                    {
+                        regs.xmm2.f32[0] *= 33.3f; // 66.6f --> 33.3f
+                    }
+                }; injector::MakeInline<LoadingScreenAnimationSpeed1>(pattern.get_first(0), pattern.get_first(8));
+            }
+
+            pattern = hook::pattern("F3 0F 59 25 ? ? ? ? C7 84 18");
+            if (!pattern.empty())
+            {
+                struct LoadingScreenAnimationSpeed2
+                {
+                    void operator()(injector::reg_pack& regs)
+                    {
+                        regs.xmm4.f32[0] *= 33.3f; // 66.6f --> 33.3f
+                    }
+                }; injector::MakeInline<LoadingScreenAnimationSpeed2>(pattern.get_first(0), pattern.get_first(8));
+            }
+            else
+            {
+                pattern = hook::pattern("F3 0F 10 15 ? ? ? ? F3 0F 10 A4 37");
+                struct LoadingScreenAnimationSpeed2
+                {
+                    void operator()(injector::reg_pack& regs)
+                    {
+                        regs.xmm2.f32[0] *= 33.3f; // 66.6f --> 33.3f
+                    }
+                }; injector::MakeInline<LoadingScreenAnimationSpeed2>(pattern.get_first(0), pattern.get_first(8));
+            }
+
+            // Loading text flash speed (IV and TLAD)
+            pattern = find_pattern("F3 0F 10 05 ? ? ? ? F3 0F 58 C1 F3 0F 11 05 ? ? ? ? EB 36", "F3 0F 10 05 ? ? ? ? F3 0F 58 05 ? ? ? ? F3 0F 11 05 ? ? ? ? EB");
+            if (!pattern.empty())
+            {
+                static auto dword_1032790 = *pattern.get_first<float*>(4);
                 struct LoadingTextSpeed
                 {
                     void operator()(injector::reg_pack& regs)
                     {
-                        regs.xmm0.f32[0] = *f1738420 * *CTimer::fTimeStep;
+                        regs.xmm0.f32[0] = *dword_1032790 * *CTimer::fTimeStep;
                     }
                 }; injector::MakeInline<LoadingTextSpeed>(pattern.get_first(0), pattern.get_first(8));
             }
 
-            // Loading sparks
+            // Loading text sparks' speed (TBoGT)
             pattern = hook::pattern("F3 0F 58 0D ? ? ? ? 0F 5B C0 F3 0F 11 0D");
             if (!pattern.empty())
             {
-                struct LoadingTextSparks
+                static auto dword_E81598 = *pattern.get_first<float*>(4);
+                struct LoadingTextSparksSpeed
                 {
                     void operator()(injector::reg_pack& regs)
                     {
-                        regs.xmm1.f32[0] += 0.6375f * *CTimer::fTimeStep;
+                        regs.xmm1.f32[0] += *dword_E81598 * *CTimer::fTimeStep;
                     }
-                }; injector::MakeInline<LoadingTextSparks>(pattern.get_first(0), pattern.get_first(8));
+                }; injector::MakeInline<LoadingTextSparksSpeed>(pattern.get_first(0), pattern.get_first(8));
             }
             else
             {
                 pattern = hook::pattern("F3 0F 58 05 ? ? ? ? F3 0F 2A 0D");
+                static auto flt_DEF584 = *pattern.get_first<float*>(4);
                 struct LoadingTextSparks
                 {
                     void operator()(injector::reg_pack& regs)
                     {
-                        regs.xmm0.f32[0] += 0.6375f * *CTimer::fTimeStep;
+                        regs.xmm0.f32[0] += *flt_DEF584 * *CTimer::fTimeStep;
                     }
                 }; injector::MakeInline<LoadingTextSparks>(pattern.get_first(0), pattern.get_first(8));
             }
 
-            // CD/busy spinner
-            pattern = hook::pattern("F3 0F 58 05 ? ? ? ? 33 C0 A3 ? ? ? ? F3 0F 11 05");
+            // CD/Busy spinner (Saving)
+            pattern = hook::pattern("F3 0F 58 05 ? ? ? ? 33 C0 A3");
             if (!pattern.empty())
             {
+                static auto dword_E841A8 = *pattern.get_first<float*>(4);
                 struct CDSpinnerHook
                 {
                     void operator()(injector::reg_pack& regs)
                     {
-                        regs.xmm0.f32[0] += *CTimer::fTimeStep * 5.0f;
+                        regs.xmm0.f32[0] += *dword_E841A8 * (*CTimer::fTimeStep / (1.0f / 30.0f));
                     }
                 }; injector::MakeInline<CDSpinnerHook>(pattern.get_first(0), pattern.get_first(8));
             }
             else
             {
-                pattern = hook::pattern("F3 0F 58 15 ? ? ? ? 33 C0 F3 0F 11 15 ? ? ? ? A3 ? ? ? ? 8B 0D ? ? ? ? 39 0D ? ? ? ? 74 0B");
+                pattern = hook::pattern("F3 0F 58 15 ? ? ? ? 33 C0 F3 0F 11 15");
+                static auto dword_DD6B68 = *pattern.get_first<float*>(4);
                 struct CDSpinnerHook
                 {
                     void operator()(injector::reg_pack& regs)
                     {
-                        regs.xmm2.f32[0] += *CTimer::fTimeStep * 5.0f;
+                        regs.xmm2.f32[0] += *dword_DD6B68 * (*CTimer::fTimeStep / (1.0f / 30.0f));
                     }
                 }; injector::MakeInline<CDSpinnerHook>(pattern.get_first(0), pattern.get_first(8));
             }
@@ -349,7 +389,9 @@ public:
 
                 pattern = hook::pattern("A1 ? ? ? ? 6B C0 15");
                 if (!pattern.empty())
+                {
                     injector::WriteMemory(pattern.get_first(1), &CustomFrameCounter, true);
+                }
             }
 
             // Camera Shake
@@ -373,11 +415,15 @@ public:
             // CCamFollowVehicle
             pattern = find_pattern("77 ? 0F 28 C2 F3 0F 5C 8F", "77 ? 0F 28 D3 F3 0F 10 8E");
             if (!pattern.empty())
+            {
                 injector::MakeNOP(pattern.get_first(0), 2, true);
+            }
 
             pattern = find_pattern("76 ? 0F 28 C8 EB ? F3 0F 10 4C 24", "76 ? 0F 28 CE EB ? 0F 28 CF 84 D2");
             if (!pattern.empty())
+            {
                 injector::WriteMemory<uint8_t>(pattern.get_first(0), 0xEB, true);
+            }
         };
     }
 } FramerateVigilante;
