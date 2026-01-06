@@ -6,8 +6,8 @@ export module fixes;
 
 import common;
 import comvars;
-import settings;
 import natives;
+import settings;
 import shaders;
 
 class Fixes
@@ -1023,6 +1023,44 @@ public:
 
                     return_to(loc_927DE0);
                 });
+            }
+
+            // Fix for loading screen animations running at double the intended speed in comparison to consoles
+            // This was especially noticeable when using the console loading screens but with default console loadingscreens.dat files
+            // Worth emphasizing that this does not fix the fps dependent loadscreen animations, just slows them down so they match consoles at 30fps
+            {
+                auto pattern = hook::pattern("F3 0F 59 0D ? ? ? ? C7 84 18");
+                if (!pattern.empty())
+                {
+                    injector::MakeNOP(pattern.get_first(0), 8, true);
+                    static auto LoadingScreenAnimationSpeed1 = safetyhook::create_mid(pattern.get_first(0), [](SafetyHookContext& regs)
+                    {
+                        regs.xmm1.f32[0] *= 33.3f; // 66.6f --> 33.3f
+                    });
+
+                    pattern = hook::pattern("F3 0F 59 25 ? ? ? ? C7 84 18");
+                    injector::MakeNOP(pattern.get_first(0), 8, true);
+                    static auto LoadingScreenAnimationSpeed2 = safetyhook::create_mid(pattern.get_first(0), [](SafetyHookContext& regs)
+                    {
+                        regs.xmm4.f32[0] *= 33.3f; // 66.6f --> 33.3f
+                    });
+                }
+                else
+                {
+                    pattern = hook::pattern("F3 0F 59 E2 F3 0F 58 A4 37");
+                    injector::MakeNOP(pattern.get_first(0), 4, true);
+                    static auto LoadingScreenAnimationSpeed1 = safetyhook::create_mid(pattern.get_first(0), [](SafetyHookContext& regs)
+                    {
+                        regs.xmm4.f32[0] *= 33.3f; // 66.6f --> 33.3f
+                    });
+
+                    pattern = hook::pattern("F3 0F 59 E2 F3 0F 58 20 EB ? F3 0F 58 E3");
+                    injector::MakeNOP(pattern.get_first(0), 4, true);
+                    static auto LoadingScreenAnimationSpeed2 = safetyhook::create_mid(pattern.get_first(0), [](SafetyHookContext& regs)
+                    {
+                        regs.xmm4.f32[0] *= 33.3f; // 66.6f --> 33.3f
+                    });
+                }
             }
         };
     }

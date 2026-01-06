@@ -6,8 +6,8 @@ export module frameratevigilante;
 
 import common;
 import comvars;
-import settings;
 import natives;
+import settings;
 
 injector::hook_back<double(__fastcall*)(void* _this, void* edx, void* a2, void* a3)> hbsub_A18510;
 double __fastcall sub_A18510(void* _this, void* edx, void* a2, void* a3)
@@ -226,11 +226,11 @@ public:
     {
         FusionFix::onInitEventAsync() += []()
         {
-            // Handbrake Cam (test)
+            // Handbrake Cam force (Gamepad)
             auto pattern = find_pattern("E8 ? ? ? ? D9 5C 24 7C F3 0F 10 4C 24", "E8 ? ? ? ? D9 5C 24 70 F3 0F 10 44 24 ? F3 0F 58 86");
             hbsub_A18510.fun = injector::MakeCALL(pattern.get_first(0), sub_A18510).get();
 
-            // Bikes (By Sergeanur)
+            // Bike physics (By Sergeanur)
             pattern = hook::pattern("F3 0F 10 45 ? 51 8B CF F3 0F 11 04 24 E8 ? ? ? ? 8A 8F");
             if (!pattern.empty())
             {
@@ -257,67 +257,18 @@ public:
                 }; injector::MakeInline<FramerateVigilanteHook1>(pattern.get_first(0), pattern.get_first(6));
             }
 
-            // Fixes loading screen animations running at double the intended speed in comparison to consoles
-            // This was especially noticeable when using the console loading screens but with default console loadingscreens.dat files
-            // Worth emphasizing that this does not fix the fps dependent loadscreen animations, just slows them down so they match consoles at 30fps
-            pattern = hook::pattern("F3 0F 59 0D ? ? ? ? C7 84 18");
-            if (!pattern.empty())
-            {
-                struct LoadingScreenAnimationSpeed1
-                {
-                    void operator()(injector::reg_pack& regs)
-                    {
-                        regs.xmm1.f32[0] *= 33.3f; // 66.6f --> 33.3f
-                    }
-                }; injector::MakeInline<LoadingScreenAnimationSpeed1>(pattern.get_first(0), pattern.get_first(8));
-            }
-            else
-            {
-                pattern = hook::pattern("F3 0F 10 15 ? ? ? ? F3 0F 59 E3 F3 0F 59 E2");
-                struct LoadingScreenAnimationSpeed1
-                {
-                    void operator()(injector::reg_pack& regs)
-                    {
-                        regs.xmm2.f32[0] *= 33.3f; // 66.6f --> 33.3f
-                    }
-                }; injector::MakeInline<LoadingScreenAnimationSpeed1>(pattern.get_first(0), pattern.get_first(8));
-            }
-
-            pattern = hook::pattern("F3 0F 59 25 ? ? ? ? C7 84 18");
-            if (!pattern.empty())
-            {
-                struct LoadingScreenAnimationSpeed2
-                {
-                    void operator()(injector::reg_pack& regs)
-                    {
-                        regs.xmm4.f32[0] *= 33.3f; // 66.6f --> 33.3f
-                    }
-                }; injector::MakeInline<LoadingScreenAnimationSpeed2>(pattern.get_first(0), pattern.get_first(8));
-            }
-            else
-            {
-                pattern = hook::pattern("F3 0F 10 15 ? ? ? ? F3 0F 10 A4 37");
-                struct LoadingScreenAnimationSpeed2
-                {
-                    void operator()(injector::reg_pack& regs)
-                    {
-                        regs.xmm2.f32[0] *= 33.3f; // 66.6f --> 33.3f
-                    }
-                }; injector::MakeInline<LoadingScreenAnimationSpeed2>(pattern.get_first(0), pattern.get_first(8));
-            }
-
             // Loading text flash speed (IV and TLAD)
             pattern = find_pattern("F3 0F 10 05 ? ? ? ? F3 0F 58 C1 F3 0F 11 05 ? ? ? ? EB 36", "F3 0F 10 05 ? ? ? ? F3 0F 58 05 ? ? ? ? F3 0F 11 05 ? ? ? ? EB");
             if (!pattern.empty())
             {
                 static auto dword_1032790 = *pattern.get_first<float*>(4);
-                struct LoadingTextSpeed
+                struct LoadingTextFlashSpeed
                 {
                     void operator()(injector::reg_pack& regs)
                     {
                         regs.xmm0.f32[0] = *dword_1032790 * *CTimer::fTimeStep;
                     }
-                }; injector::MakeInline<LoadingTextSpeed>(pattern.get_first(0), pattern.get_first(8));
+                }; injector::MakeInline<LoadingTextFlashSpeed>(pattern.get_first(0), pattern.get_first(8));
             }
 
             // Loading text sparks' speed (TBoGT)
@@ -337,13 +288,13 @@ public:
             {
                 pattern = hook::pattern("F3 0F 58 05 ? ? ? ? F3 0F 2A 0D");
                 static auto flt_DEF584 = *pattern.get_first<float*>(4);
-                struct LoadingTextSparks
+                struct LoadingTextSparksSpeed
                 {
                     void operator()(injector::reg_pack& regs)
                     {
                         regs.xmm0.f32[0] += *flt_DEF584 * *CTimer::fTimeStep;
                     }
-                }; injector::MakeInline<LoadingTextSparks>(pattern.get_first(0), pattern.get_first(8));
+                }; injector::MakeInline<LoadingTextSparksSpeed>(pattern.get_first(0), pattern.get_first(8));
             }
 
             // CD/Busy spinner (Saving)
@@ -372,7 +323,7 @@ public:
                 }; injector::MakeInline<CDSpinnerHook>(pattern.get_first(0), pattern.get_first(8));
             }
 
-            // Cop blips
+            // Cop minimap blips' speed (In-game)
             pattern = find_pattern("F3 0F 10 4C 24 ? 0F 28 C1 F3 0F 59 C2", "D9 44 24 04 8B 0D ? ? ? ? D8 0D ? ? ? ? F3 0F 10 05 ? ? ? ? 83 05 ? ? ? ? ? D9 3C 24");
             if (!pattern.empty())
             {
@@ -394,7 +345,7 @@ public:
                 }
             }
 
-            // Camera Shake
+            // Camera shake
             game_rand = (decltype(game_rand))injector::GetBranchDestination(find_pattern("E8 ? ? ? ? F3 0F 10 4C 24 ? F3 0F 5C 4C 24 ? F3 0F 10 5C 24", "E8 ? ? ? ? F3 0F 10 4C 24 ? F3 0F 59 4C 24 ? F3 0F 59 4C 24").get_first()).as_int();
             dword_11F7060 = *find_pattern("83 3D ? ? ? ? ? F3 0F 10 05 ? ? ? ? F3 0F 59 C1", "83 3D ? ? ? ? ? F3 0F 10 05 ? ? ? ? F3 0F 59 05").get_first<uint32_t*>(2);
             dword_12088B4 = *find_pattern("A1 ? ? ? ? 3B 05 ? ? ? ? 75 ? 83 3D ? ? ? ? ? 75 ? A1", "A1 ? ? ? ? 3B 05 ? ? ? ? 75 ? 83 3D ? ? ? ? ? 75 ? 8B 0D ? ? ? ? DB 05").get_first<uint32_t*>(1);
@@ -403,7 +354,7 @@ public:
             pattern = find_pattern("55 8B EC 83 E4 ? 83 EC ? 56 57 8B F9 F3 0F 10 05", "55 8B EC 83 E4 ? 0F 57 E4 F3 0F 10 1D");
             shCameraShake = safetyhook::create_inline(pattern.get_first(), CameraShake);
 
-            // Natives
+            // Native patches
             hbSET_CAM_FOV.fun = NativeOverride::Register(Natives::NativeHashes::SET_CAM_FOV, NATIVE_SET_CAM_FOV, "E8 ? ? ? ? 83 C4 08 C3", 30);
             hbSLIDE_OBJECT.fun = NativeOverride::Register(Natives::NativeHashes::SLIDE_OBJECT, NATIVE_SLIDE_OBJECT_1, "E8 ? ? ? ? 0F B6 C8", 107);
             if (!hbSLIDE_OBJECT.fun)
@@ -412,7 +363,7 @@ public:
                 shNATIVE_SLIDE_OBJECT = safetyhook::create_inline(pattern.get_first(0), NATIVE_SLIDE_OBJECT_2);
             }
 
-            // CCamFollowVehicle
+            // CCamFollowVehicle auto center force
             pattern = find_pattern("77 ? 0F 28 C2 F3 0F 5C 8F", "77 ? 0F 28 D3 F3 0F 10 8E");
             if (!pattern.empty())
             {
