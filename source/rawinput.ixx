@@ -781,7 +781,7 @@ public:
                     static auto CCamFpsWeapon_MouseAimSens = safetyhook::create_mid(pattern.get_first(0), [](SafetyHookContext& regs)
                     {
                         regs.xmm2.f32[0] = GetMouseAimSensitivity();
-                        regs.xmm0.f32[0] = regs.xmm1.f32[0];
+                        regs.xmm0.f32[0] = regs.xmm2.f32[0];
                     });
                 }
             }
