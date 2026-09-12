@@ -38,6 +38,7 @@ private:
 
     static inline BackBufferInfo backBufferInfo{};
 
+    static inline rage::grcRenderTargetPC* pSceneRT = nullptr;
     static inline IDirect3DTexture9* pSceneTex = nullptr;
     static inline IDirect3DSurface9* pSceneSurf = nullptr;
     static inline ID3DXEffect* pEffect = nullptr;
@@ -47,14 +48,19 @@ private:
     static inline D3DXHANDLE hTechniqueBlitXenonGamma = nullptr;
     static inline D3DXHANDLE hTechniqueBlitCellGamma = nullptr;
 
-    static inline bool bCreatedTextures = false;
-
-    static IDirect3DSurface9* GetBackBuffer(IDirect3DDevice9* device)
+    static IDirect3DSurface9* GetRealBackBuffer(IDirect3DDevice9* device)
     {
         IDirect3DSurface9* backBuffer = nullptr;
+        if (!device)
+            return backBuffer;
 
-        if (device)
-            device->GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO, &backBuffer);
+        IDirect3DSwapChain9* swapChain = nullptr;
+        if (SUCCEEDED(device->GetSwapChain(0, &swapChain)) && swapChain)
+        {
+            swapChain->GetBackBuffer(0, D3DBACKBUFFER_TYPE_MONO, &backBuffer);
+
+            swapChain->Release();
+        }
 
         return backBuffer;
     }
@@ -124,12 +130,12 @@ private:
         return true;
     }
 
-    static bool CreateTextures(IDirect3DDevice9* device)
+    static bool CreateSceneTexture(IDirect3DDevice9* device)
     {
-        if (bCreatedTextures)
+        if (pSceneRT)
             return true;
 
-        IDirect3DSurface9* backBuffer = GetBackBuffer(device);
+        IDirect3DSurface9* backBuffer = GetRealBackBuffer(device);
         if (!backBuffer)
             return false;
 
@@ -147,27 +153,64 @@ private:
 
         backBuffer->Release();
 
-        if (FAILED(device->CreateTexture(backBufferInfo.width, backBufferInfo.height, 1, D3DUSAGE_RENDERTARGET, backBufferInfo.format, D3DPOOL_DEFAULT, &pSceneTex, nullptr)))
+        rage::grcRenderTargetDesc renderTargetDesc{};
+        renderTargetDesc.mMultisampleCount = 0;
+        renderTargetDesc.field_0 = 1;
+        renderTargetDesc.field_12 = 1;
+        renderTargetDesc.mDepthRT = nullptr;
+        renderTargetDesc.field_8 = 1;
+        renderTargetDesc.field_10 = 1;
+        renderTargetDesc.field_11 = 1;
+        renderTargetDesc.field_24 = false;
+        renderTargetDesc.mFormat = rage::getEngineTextureFormat(backBufferInfo.format);
+
+        auto* renderTarget = rage::grcTextureFactory::GetInstance()->CreateRenderTarget("ConsoleGammaScene", 3, backBufferInfo.width, backBufferInfo.height, 32, &renderTargetDesc);
+
+        if (!renderTarget)
             return false;
 
-        if (FAILED(pSceneTex->GetSurfaceLevel(0, &pSceneSurf)))
+        rage::grcDevice::grcResolveFlags resolveFlags{};
+        rage::grcTextureFactoryPC::GetInstance()->LockRenderTarget(0, renderTarget, nullptr);
+        rage::grcTextureFactoryPC::GetInstance()->UnlockRenderTarget(0, &resolveFlags);
+
+        pSceneRT = renderTarget;
+
+        if (!pSceneRT->mD3DTexture)
         {
-            SafeRelease(pSceneTex);
+            pSceneRT->Destroy();
+
+            pSceneRT = nullptr;
 
             return false;
         }
 
-        bCreatedTextures = true;
+        pSceneTex = pSceneRT->mD3DTexture;
+
+        if (FAILED(pSceneTex->GetSurfaceLevel(0, &pSceneSurf)))
+        {
+            pSceneRT->Destroy();
+
+            pSceneRT = nullptr;
+            pSceneTex = nullptr;
+
+            return false;
+        }
 
         return true;
     }
 
-    static void ReleaseTextures()
+    static void ReleaseSceneTexture()
     {
         SafeRelease(pSceneSurf);
-        SafeRelease(pSceneTex);
 
-        bCreatedTextures = false;
+        pSceneTex = nullptr;
+
+        if (pSceneRT)
+        {
+            pSceneRT->Destroy();
+
+            pSceneRT = nullptr;
+        }
     }
 
     static void DrawScreenQuad(IDirect3DDevice9* device)
@@ -189,7 +232,7 @@ private:
         if (nConsoleGammaMode == 0 || !device)
             return;
 
-        if (!LoadEffectFile(device) || !CreateTextures(device))
+        if (!LoadEffectFile(device) || !CreateSceneTexture(device))
             return;
 
         hGammaTechnique = (nConsoleGammaMode == 1) ? hTechniqueBlitXenonGamma : hTechniqueBlitCellGamma;
@@ -251,15 +294,12 @@ private:
     static void Shutdown()
     {
         SafeRelease(pEffect);
-        ReleaseTextures();
+        ReleaseSceneTexture();
 
         hInputTex2D = nullptr;
         hGammaTechnique = nullptr;
-    }
-
-    static void OnDeviceReset()
-    {
-        ReleaseTextures();
+        hTechniqueBlitXenonGamma = nullptr;
+        hTechniqueBlitCellGamma = nullptr;
     }
 
 public:
@@ -283,7 +323,6 @@ public:
             FusionFix::onBeforeReset() += []()
             {
                 ConsoleGamma::Shutdown();
-                ConsoleGamma::OnDeviceReset();
             };
         };
     }
