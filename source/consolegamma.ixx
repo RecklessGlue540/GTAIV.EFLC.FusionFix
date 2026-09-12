@@ -1,7 +1,7 @@
 module;
 
 #include <common.hxx>
-#include <wrl/client.h>
+#include <d3dx9.h>
 
 export module consolegamma;
 
@@ -10,277 +10,256 @@ import comvars;
 import d3dx9_43;
 import settings;
 
-using Microsoft::WRL::ComPtr;
+#define IDR_CONSOLEGAMMA 134
 
-#define IDR_VS_BlitXenonGamma_Dither 134
-#define IDR_PS_BlitXenonGamma_Dither 135
-
-#define IDR_VS_BlitCellGamma_Dither 136
-#define IDR_PS_BlitCellGamma_Dither 137
-
-class ConsoleGamma
+export class ConsoleGamma
 {
+public:
+    static inline int nConsoleGammaMode = 0;
+
 private:
-    static inline ComPtr<IDirect3DVertexShader9> VS_BlitXenonGamma_Dither, VS_BlitCellGamma_Dither;
-    static inline ComPtr<IDirect3DPixelShader9> PS_BlitXenonGamma_Dither, PS_BlitCellGamma_Dither;
-    static inline ComPtr<IDirect3DVertexShader9> g_vertexShader;
-    static inline ComPtr<IDirect3DPixelShader9> g_pixelShader;
-
-    static inline rage::grcRenderTargetPC* pSceneRT = nullptr;
-    static inline ComPtr<IDirect3DSurface9> pSceneSurf;
-
-    static inline UINT g_width = 0, g_height = 0;
-    static inline bool g_initialized = false;
-
-    static ComPtr<IDirect3DSurface9> GetRealBackBuffer(IDirect3DDevice9* device)
+    template <typename T>
+    static void SafeRelease(T*& p)
     {
-        ComPtr<IDirect3DSurface9> backBuffer;
-        if (!device)
-            return backBuffer;
+        if (p)
+        {
+            p->Release();
 
-        ComPtr<IDirect3DSwapChain9> swapChain;
-        if (SUCCEEDED(device->GetSwapChain(0, &swapChain)) && swapChain)
-            swapChain->GetBackBuffer(0, D3DBACKBUFFER_TYPE_MONO, &backBuffer);
+            p = nullptr;
+        }
+    }
+
+    struct BackBufferInfo
+    {
+        D3DFORMAT format = D3DFMT_UNKNOWN;
+        UINT width = 0;
+        UINT height = 0;
+    };
+
+    static inline BackBufferInfo backBufferInfo{};
+
+    static inline IDirect3DTexture9* pSceneTex = nullptr;
+    static inline IDirect3DSurface9* pSceneSurf = nullptr;
+    static inline ID3DXEffect* pEffect = nullptr;
+
+    static inline D3DXHANDLE hInputTex2D = nullptr;
+    static inline D3DXHANDLE hGammaTechnique = nullptr;
+    static inline D3DXHANDLE hTechniqueBlitXenonGamma = nullptr;
+    static inline D3DXHANDLE hTechniqueBlitCellGamma = nullptr;
+
+    static inline bool bCreatedTextures = false;
+
+    static IDirect3DSurface9* GetBackBuffer(IDirect3DDevice9* device)
+    {
+        IDirect3DSurface9* backBuffer = nullptr;
+
+        if (device)
+            device->GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO, &backBuffer);
 
         return backBuffer;
     }
 
-    static const DWORD* LoadCompiledShaderResource(HMODULE hModule, int resourceId)
+    static bool LoadEffectFile(IDirect3DDevice9* device)
     {
-        HRSRC hRes = FindResourceW(hModule, MAKEINTRESOURCEW(resourceId), RT_RCDATA);
+        if (pEffect)
+            return true;
+
+        HMODULE hModule = nullptr;
+        GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, (LPCWSTR)&LoadEffectFile, &hModule);
+
+        HRSRC hRes = FindResourceW(hModule, MAKEINTRESOURCEW(IDR_CONSOLEGAMMA), RT_RCDATA);
         if (!hRes)
-            return nullptr;
+        {
+            OutputDebugStringA("ConsoleGamma: Failed to find effect file\n");
+
+            return false;
+        }
 
         HGLOBAL hGlob = LoadResource(hModule, hRes);
         if (!hGlob)
-            return nullptr;
-
-        return reinterpret_cast<const DWORD*>(LockResource(hGlob));
-    }
-
-    static void SelectShaders(int ConsoleGamma)
-    {
-        if (ConsoleGamma == 1)
         {
-            g_vertexShader = VS_BlitXenonGamma_Dither;
-            g_pixelShader = PS_BlitXenonGamma_Dither;
-        }
-        else if (ConsoleGamma == 2)
-        {
-            g_vertexShader = VS_BlitCellGamma_Dither;
-            g_pixelShader = PS_BlitCellGamma_Dither;
-        }
-        else
-        {
-            g_vertexShader = nullptr;
-            g_pixelShader = nullptr;
-        }
-    }
+            OutputDebugStringA("ConsoleGamma: Failed to load effect file\n");
 
-    static void __fastcall OnDeviceLost()
-    {
-        pSceneSurf.Reset();
-
-        if (pSceneRT)
-        {
-            pSceneRT->Destroy();
-
-            pSceneRT = nullptr;
-        }
-    }
-
-    static void __fastcall OnDeviceReset()
-    {
-        auto* device = rage::grcDevice::GetD3DDevice();
-        if (!device)
-            return;
-
-        auto backBuffer = GetRealBackBuffer(device);
-        if (!backBuffer)
-            return;
-
-        D3DSURFACE_DESC backBufferDesc{};
-        backBuffer->GetDesc(&backBufferDesc);
-
-        g_width = backBufferDesc.Width;
-        g_height = backBufferDesc.Height;
-
-        pSceneSurf.Reset();
-        if (pSceneRT)
-        {
-            pSceneRT->Destroy();
-
-            pSceneRT = nullptr;
-        }
-
-        rage::grcRenderTargetDesc renderTargetDesc{};
-        renderTargetDesc.mMultisampleCount = 0;
-        renderTargetDesc.field_0 = 1;
-        renderTargetDesc.field_12 = 1;
-        renderTargetDesc.mDepthRT = nullptr;
-        renderTargetDesc.field_8 = 1;
-        renderTargetDesc.field_10 = 1;
-        renderTargetDesc.field_11 = 1;
-        renderTargetDesc.field_24 = false;
-        renderTargetDesc.mFormat = rage::getEngineTextureFormat(backBufferDesc.Format);
-
-        auto* renderTarget = rage::grcTextureFactory::GetInstance()->CreateRenderTarget("ConsoleGammaScene", 3, g_width, g_height, 32, &renderTargetDesc);
-
-        rage::grcDevice::grcResolveFlags resolveFlags{};
-        rage::grcTextureFactoryPC::GetInstance()->LockRenderTarget(0, renderTarget, nullptr);
-        rage::grcTextureFactoryPC::GetInstance()->UnlockRenderTarget(0, &resolveFlags);
-
-        pSceneRT = renderTarget;
-        if (pSceneRT && pSceneRT->mD3DTexture)
-            pSceneRT->mD3DTexture->GetSurfaceLevel(0, &pSceneSurf);
-    }
-
-    static bool Initialize(IDirect3DDevice9* device)
-    {
-        if (g_initialized || !device)
-            return g_initialized;
-
-        static bool deviceCallbacksRegistered = false;
-        if (!deviceCallbacksRegistered)
-        {
-            auto onDeviceLostCB = rage::grcDevice::Functor0(nullptr, OnDeviceLost, nullptr, 0);
-            auto onDeviceResetCB = rage::grcDevice::Functor0(nullptr, OnDeviceReset, nullptr, 0);
-
-            rage::grcDevice::RegisterDeviceCallbacks(onDeviceLostCB, onDeviceResetCB);
-
-            deviceCallbacksRegistered = true;
-        }
-
-        static auto ConsoleGamma = FusionFixSettings.GetRef("PREF_CONSOLE_GAMMA");
-        if (ConsoleGamma->get() != 1 && ConsoleGamma->get() != 2)
             return false;
+        }
 
-        HMODULE hModule = nullptr;
-        GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, (LPCWSTR)&Initialize, &hModule);
-
-        auto LoadVertexShader = [&](int id, ComPtr<IDirect3DVertexShader9>& shader) -> bool
+        const void* pData = LockResource(hGlob);
+        DWORD dataSize = SizeofResource(hModule, hRes);
+        if (!pData || !dataSize)
         {
-            if (shader)
-                return true;
+            OutputDebugStringA("ConsoleGamma: Effect file is empty\n");
 
-            const DWORD* vsData = LoadCompiledShaderResource(hModule, id);
-
-            return vsData && SUCCEEDED(device->CreateVertexShader(vsData, &shader));
-        };
-
-        auto LoadPixelShader = [&](int id, ComPtr<IDirect3DPixelShader9>& shader) -> bool
-        {
-            if (shader)
-                return true;
-
-            const DWORD* psData = LoadCompiledShaderResource(hModule, id);
-
-            return psData && SUCCEEDED(device->CreatePixelShader(psData, &shader));
-        };
-
-        if (!LoadVertexShader(IDR_VS_BlitXenonGamma_Dither, VS_BlitXenonGamma_Dither) || !LoadPixelShader(IDR_PS_BlitXenonGamma_Dither, PS_BlitXenonGamma_Dither)
-            || !LoadVertexShader(IDR_VS_BlitCellGamma_Dither, VS_BlitCellGamma_Dither) || !LoadPixelShader(IDR_PS_BlitCellGamma_Dither, PS_BlitCellGamma_Dither))
             return false;
+        }
 
-        SelectShaders(ConsoleGamma->get());
+        ID3DXBuffer* errors = nullptr;
+        HRESULT hResult = D3DXCreateEffect(device, pData, dataSize, nullptr, nullptr, 0, nullptr, &pEffect, &errors);
+        if (FAILED(hResult) || !pEffect)
+        {
+            if (errors)
+            {
+                OutputDebugStringA((const char*)errors->GetBufferPointer());
 
-        OnDeviceReset();
+                errors->Release();
+            }
 
-        g_initialized = true;
+            OutputDebugStringA("ConsoleGamma: Failed to load effect\n");
+
+            return false;
+        }
+
+        hInputTex2D = pEffect->GetParameterByName(nullptr, "InputTex2D");
+        hTechniqueBlitXenonGamma = pEffect->GetTechniqueByName("BlitXenonGamma");
+        hTechniqueBlitCellGamma = pEffect->GetTechniqueByName("BlitCellGamma");
+        if (!hInputTex2D || !hTechniqueBlitXenonGamma || !hTechniqueBlitCellGamma)
+        {
+            SafeRelease(pEffect);
+
+            return false;
+        }
+
+        pEffect->ValidateTechnique(hTechniqueBlitXenonGamma);
+        pEffect->ValidateTechnique(hTechniqueBlitCellGamma);
+
         return true;
     }
 
-    static void ReloadShaders()
+    static bool CreateTextures(IDirect3DDevice9* device)
     {
-        g_initialized = false;
+        if (bCreatedTextures)
+            return true;
 
-        g_vertexShader.Reset();
-        g_pixelShader.Reset();
+        IDirect3DSurface9* backBuffer = GetBackBuffer(device);
+        if (!backBuffer)
+            return false;
+
+        D3DSURFACE_DESC backBufferDesc{};
+        if (FAILED(backBuffer->GetDesc(&backBufferDesc)))
+        {
+            backBuffer->Release();
+
+            return false;
+        }
+
+        backBufferInfo.width = backBufferDesc.Width;
+        backBufferInfo.height = backBufferDesc.Height;
+        backBufferInfo.format = backBufferDesc.Format;
+
+        backBuffer->Release();
+
+        if (FAILED(device->CreateTexture(backBufferInfo.width, backBufferInfo.height, 1, D3DUSAGE_RENDERTARGET, backBufferInfo.format, D3DPOOL_DEFAULT, &pSceneTex, nullptr)))
+            return false;
+
+        if (FAILED(pSceneTex->GetSurfaceLevel(0, &pSceneSurf)))
+        {
+            SafeRelease(pSceneTex);
+
+            return false;
+        }
+
+        bCreatedTextures = true;
+
+        return true;
+    }
+
+    static void ReleaseTextures()
+    {
+        SafeRelease(pSceneSurf);
+        SafeRelease(pSceneTex);
+
+        bCreatedTextures = false;
+    }
+
+    static void DrawScreenQuad(IDirect3DDevice9* device)
+    {
+        struct ScreenVertex { float x, y, z, rhw, u, v; };
+        ScreenVertex vertices[4] =
+        {
+            { -0.5f,                              -0.5f,                               0.0f, 1.0f, 0.0f, 0.0f },
+            { -0.5f,                              float(backBufferInfo.height) - 0.5f, 0.0f, 1.0f, 0.0f, 1.0f },
+            { float(backBufferInfo.width) - 0.5f, -0.5f,                               0.0f, 1.0f, 1.0f, 0.0f },
+            { float(backBufferInfo.width) - 0.5f, float(backBufferInfo.height) - 0.5f, 0.0f, 1.0f, 1.0f, 1.0f }
+        };
+
+        device->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, 2, vertices, sizeof(ScreenVertex));
     }
 
     static void Render(IDirect3DDevice9* device)
     {
-        static auto ConsoleGamma = FusionFixSettings.GetRef("PREF_CONSOLE_GAMMA");
-        if (!ConsoleGamma->get() || !device)
+        if (nConsoleGammaMode == 0 || !device)
             return;
 
-        if (!g_initialized && !Initialize(device))
+        if (!LoadEffectFile(device) || !CreateTextures(device))
             return;
 
-        if (!pSceneRT || !pSceneRT->mD3DTexture || !pSceneSurf || !g_vertexShader || !g_pixelShader)
+        hGammaTechnique = (nConsoleGammaMode == 1) ? hTechniqueBlitXenonGamma : hTechniqueBlitCellGamma;
+        if (!hGammaTechnique)
             return;
 
-        auto backBuffer = GetRealBackBuffer(device);
-        if (!backBuffer)
-            return;
-
-        ComPtr<IDirect3DSurface9> currentRenderTarget;
-        ComPtr<IDirect3DSurface9> oldDepthStencil;
-
-        ComPtr<IDirect3DVertexBuffer9> oldVertexBuffer;
-        ComPtr<IDirect3DVertexDeclaration9> oldVertexDecl;
-
-        UINT oldOffset = 0, oldStride = 0;
-        DWORD oldFVF = 0;
-
+        IDirect3DSurface9* currentRenderTarget = nullptr;
         if (FAILED(device->GetRenderTarget(0, &currentRenderTarget)) || !currentRenderTarget)
             return;
 
-        if (FAILED(device->StretchRect(currentRenderTarget.Get(), nullptr, pSceneSurf.Get(), nullptr, D3DTEXF_POINT)))
-            return;
+        if (FAILED(device->StretchRect(currentRenderTarget, nullptr, pSceneSurf, nullptr, D3DTEXF_POINT)))
+        {
+            currentRenderTarget->Release();
 
-        device->GetDepthStencilSurface(&oldDepthStencil);
+            return;
+        }
+
+        IDirect3DVertexBuffer9* oldVertexBuffer = nullptr;
+        IDirect3DVertexDeclaration9* oldVertexDecl = nullptr;
+
+        UINT oldOffset = 0, oldStride = 0;
+        DWORD oldFVF = 0;
 
         device->GetStreamSource(0, &oldVertexBuffer, &oldOffset, &oldStride);
         device->GetVertexDeclaration(&oldVertexDecl);
         device->GetFVF(&oldFVF);
 
-        device->SetRenderState(D3DRS_ZENABLE, FALSE);
-        device->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
-        device->SetRenderState(D3DRS_ALPHABLENDENABLE, FALSE);
-        device->SetRenderState(D3DRS_ALPHATESTENABLE, FALSE);
-        device->SetRenderState(D3DRS_STENCILENABLE, FALSE);
-        device->SetRenderState(D3DRS_CULLMODE, D3DCULL_NONE);
-        device->SetRenderState(D3DRS_SCISSORTESTENABLE, FALSE);
-
-        device->SetSamplerState(0, D3DSAMP_ADDRESSU, D3DTADDRESS_CLAMP);
-        device->SetSamplerState(0, D3DSAMP_ADDRESSV, D3DTADDRESS_CLAMP);
-        device->SetSamplerState(0, D3DSAMP_MIPFILTER, D3DTEXF_LINEAR);
-        device->SetSamplerState(0, D3DSAMP_MINFILTER, D3DTEXF_LINEAR);
-        device->SetSamplerState(0, D3DSAMP_MAGFILTER, D3DTEXF_LINEAR);
-
-        device->SetRenderTarget(0, backBuffer.Get());
-        device->SetDepthStencilSurface(nullptr);
-
         device->SetStreamSource(0, nullptr, 0, 0);
         device->SetVertexDeclaration(nullptr);
         device->SetFVF(D3DFVF_XYZRHW | D3DFVF_TEX1);
 
-        device->SetTexture(0, pSceneRT->mD3DTexture);
-        device->SetVertexShader(g_vertexShader.Get());
-        device->SetPixelShader(g_pixelShader.Get());
+        pEffect->SetTexture(hInputTex2D, pSceneTex);
+        pEffect->SetTechnique(hGammaTechnique);
+        pEffect->CommitChanges();
 
-        struct ScreenVertex { float x, y, z, rhw, u, v; };
-        ScreenVertex vertices[4] =
+        UINT passes = 0;
+        if (SUCCEEDED(pEffect->Begin(&passes, 0)))
         {
-            { -0.5f,                 -0.5f,                  0.0f, 1.0f, 0.0f, 0.0f },
-            { -0.5f,                 (float)g_height - 0.5f, 0.0f, 1.0f, 0.0f, 1.0f },
-            { (float)g_width - 0.5f, -0.5f,                  0.0f, 1.0f, 1.0f, 0.0f },
-            { (float)g_width - 0.5f, (float)g_height - 0.5f, 0.0f, 1.0f, 1.0f, 1.0f },
-        };
+            if (SUCCEEDED(pEffect->BeginPass(0)))
+            {
+                DrawScreenQuad(device);
 
-        device->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, 2, vertices, sizeof(ScreenVertex));
+                pEffect->EndPass();
+            }
 
-        device->SetTexture(0, nullptr);
-        device->SetVertexShader(nullptr);
-        device->SetPixelShader(nullptr);
+            pEffect->End();
+        }
 
-        device->SetRenderTarget(0, currentRenderTarget.Get());
-        device->SetDepthStencilSurface(oldDepthStencil.Get());
-
-        device->SetStreamSource(0, oldVertexBuffer.Get(), oldOffset, oldStride);
-        device->SetVertexDeclaration(oldVertexDecl.Get());
+        device->SetStreamSource(0, oldVertexBuffer, oldOffset, oldStride);
+        device->SetVertexDeclaration(oldVertexDecl);
         device->SetFVF(oldFVF);
+
+        SafeRelease(oldVertexBuffer);
+        SafeRelease(oldVertexDecl);
+
+        currentRenderTarget->Release();
+    }
+
+    static void Shutdown()
+    {
+        SafeRelease(pEffect);
+        ReleaseTextures();
+
+        hInputTex2D = nullptr;
+        hGammaTechnique = nullptr;
+    }
+
+    static void OnDeviceReset()
+    {
+        ReleaseTextures();
     }
 
 public:
@@ -288,18 +267,24 @@ public:
     {
         FusionFix::onInitEventAsync() += []()
         {
-            FusionFixSettings.SetCallback("PREF_CONSOLE_GAMMA", [](int32_t)
+            auto ConsoleGamma = FusionFixSettings.GetRef("PREF_CONSOLE_GAMMA");
+            nConsoleGammaMode = ConsoleGamma->get();
+
+            FusionFixSettings.SetCallback("PREF_CONSOLE_GAMMA", [](int32_t value)
             {
-                ReloadShaders();
+                nConsoleGammaMode = value;
             });
 
-            if (GetD3DX9_43DLL())
+            FusionFix::onEndScene() += []()
             {
-                FusionFix::onEndScene() += []()
-                {
-                    ConsoleGamma::Render(rage::grcDevice::GetD3DDevice());
-                };
-            }
+                ConsoleGamma::Render(rage::grcDevice::GetD3DDevice());
+            };
+
+            FusionFix::onBeforeReset() += []()
+            {
+                ConsoleGamma::Shutdown();
+                ConsoleGamma::OnDeviceReset();
+            };
         };
     }
 } ConsoleGamma;
